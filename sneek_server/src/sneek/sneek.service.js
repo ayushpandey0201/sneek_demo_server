@@ -1,7 +1,8 @@
-const { decryptPayload, signCallbackPayload } = require('../shared/crypto');
+const { decryptPayload, signCallbackPayload, canonicalize, sha256Hex } = require('../shared/crypto');
 const { verifyHMAC, verifyKID } = require('../shared/securityChecks');
 
 const DEMO_MOBILE_TOKEN = 'demo-mobile-token';
+const locallyConsumedSessions = new Set();
 
 const clients = new Map([
   [
@@ -18,6 +19,50 @@ const clients = new Map([
 
 function logStep(actor, message) {
   console.log(`[${actor}] ${message}`);
+}
+
+function createInitialVerification() {
+  return {
+    mobileToken: 'pending',
+    decrypt: 'pending',
+    hmac: 'pending',
+    kid: 'pending',
+    ttl: 'pending',
+    replay: 'pending',
+    callbackSignature: 'pending',
+    sessionCrossCheck: 'pending',
+    payloadDigestMatch: 'pending',
+    blobDigestMatch: 'pending',
+    crossVerifySummary: 'pending',
+  };
+}
+
+function isExpiredSignal(bridgeResult) {
+  const reason = bridgeResult?.body?.reason || bridgeResult?.body?.error || '';
+  return bridgeResult?.status === 410 || String(reason).toLowerCase().includes('expired');
+}
+
+function isReplaySignal(bridgeResult) {
+  const reason = bridgeResult?.body?.reason || bridgeResult?.body?.error || '';
+  return bridgeResult?.status === 409 || String(reason).toLowerCase().includes('replay');
+}
+
+function deriveExpectedPayloadDigest(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const payloadForDigest = { ...payload };
+  delete payloadForDigest.hmac;
+  delete payloadForDigest.payloadDigest;
+  delete payloadForDigest.payload_digest;
+  return sha256Hex(canonicalize(payloadForDigest));
+}
+
+function isPayloadExpired(expiresAt) {
+  if (!expiresAt) return false;
+  const expiryMillis = Date.parse(expiresAt);
+  if (Number.isNaN(expiryMillis)) {
+    return true;
+  }
+  return Date.now() > expiryMillis;
 }
 
 async function postToClientServer(path, payload, extraHeaders = {}) {
@@ -64,18 +109,20 @@ async function postToClientServer(path, payload, extraHeaders = {}) {
 }
 
 async function processSneekScan(body) {
-  const { encryptedBlob, username } = body || {};
+  const { encryptedBlob, username, mobileToken, userId, name, email } = body || {};
   logStep('SNEEK', 'Scan/Verify request received');
   
   if (!encryptedBlob) {
     return { status: 400, body: { ok: false, error: 'encryptedBlob is required.' } };
   }
 
-  const verification = {
-    decrypt: 'pending',
-    hmac: 'pending',
-    kid: 'pending',
-  };
+  const verification = createInitialVerification();
+
+  if (!mobileToken || mobileToken !== DEMO_MOBILE_TOKEN) {
+    verification.mobileToken = 'failed';
+    return { status: 401, body: { ok: false, error: 'Invalid mobile token.', verification } };
+  }
+  verification.mobileToken = 'passed';
 
   let decryptedPayload;
   try {
@@ -121,10 +168,30 @@ async function processSneekScan(body) {
   verification.kid = 'passed';
   logStep('SNEEK', 'KID verified.');
 
+  const expectedPayloadDigest = deriveExpectedPayloadDigest(decryptedPayload);
+  const receivedPayloadDigest = decryptedPayload.payloadDigest || decryptedPayload.payload_digest || null;
+  if (receivedPayloadDigest) {
+    verification.payloadDigestMatch = receivedPayloadDigest === expectedPayloadDigest ? 'passed' : 'failed';
+  } else {
+    verification.payloadDigestMatch = 'passed';
+  }
+
+  const expectedBlobDigest = sha256Hex(encryptedBlob);
+  const receivedBlobDigest = decryptedPayload.blobDigest || decryptedPayload.blob_digest || null;
+  if (receivedBlobDigest) {
+    verification.blobDigestMatch = receivedBlobDigest === expectedBlobDigest ? 'passed' : 'failed';
+  } else {
+    verification.blobDigestMatch = 'passed';
+  }
+
+  const displayName = username || name || 'Demo User';
+  const normalizedName = String(displayName).trim();
+  const normalizedUserId = String(userId || username || 'demo_user').trim();
+  const normalizedEmail = String(email || `${normalizedUserId || 'demo'}@sneekauth.com`).trim();
   const userProfile = {
-    userId: username || 'demo_user',
-    name: username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Demo User',
-    email: `${username || 'demo'}@sneekauth.com`,
+    userId: normalizedUserId || 'demo_user',
+    name: normalizedName || 'Demo User',
+    email: normalizedEmail || 'demo@sneekauth.com',
   };
   
   const sharedInfo = {
@@ -134,6 +201,52 @@ async function processSneekScan(body) {
   };
 
   const sessionId = decryptedPayload.session_id || decryptedPayload.sessionId || null;
+  const expiresAt = decryptedPayload.expires_at || decryptedPayload.expiresAt || null;
+
+  if (isPayloadExpired(expiresAt)) {
+    verification.ttl = 'failed';
+    verification.replay = 'pending';
+    verification.sessionCrossCheck = 'failed';
+    verification.callbackSignature = 'pending';
+    verification.crossVerifySummary = 'failed';
+    return {
+      status: 410,
+      body: {
+        ok: false,
+        error: 'Session has expired.',
+        decryptedPayload,
+        verification,
+        clientBridge: {
+          verifySession: { skipped: true, reason: 'local_payload_ttl_failed' },
+          verificationSync: { skipped: true, reason: 'local_payload_ttl_failed' },
+          callback: { skipped: true, reason: 'local_payload_ttl_failed' },
+        },
+      },
+    };
+  }
+
+  if (sessionId && locallyConsumedSessions.has(sessionId)) {
+    verification.ttl = 'passed';
+    verification.replay = 'failed';
+    verification.sessionCrossCheck = 'failed';
+    verification.callbackSignature = 'pending';
+    verification.crossVerifySummary = 'failed';
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: 'Replay detected for this session.',
+        decryptedPayload,
+        verification,
+        clientBridge: {
+          verifySession: { skipped: true, reason: 'local_replay_check_failed' },
+          verificationSync: { skipped: true, reason: 'local_replay_check_failed' },
+          callback: { skipped: true, reason: 'local_replay_check_failed' },
+        },
+      },
+    };
+  }
+
   const verificationSyncPayload = {
     session_id: sessionId,
     verification,
@@ -150,16 +263,103 @@ async function processSneekScan(body) {
   };
   const callbackSignature = signCallbackPayload(callbackPayload, client.callbackSecret);
 
+  const verifySessionResult = await postToClientServer('/verify-session', {
+    session_id: sessionId,
+    client_id: decryptedPayload.client_id,
+  });
+
+  if (verifySessionResult.skipped) {
+    verification.ttl = 'passed';
+    verification.replay = 'passed';
+    verification.sessionCrossCheck = 'passed';
+  } else if (!verifySessionResult.ok && isExpiredSignal(verifySessionResult)) {
+    verification.ttl = 'failed';
+    verification.replay = 'pending';
+    verification.sessionCrossCheck = 'failed';
+  } else if (!verifySessionResult.ok && isReplaySignal(verifySessionResult)) {
+    verification.ttl = 'passed';
+    verification.replay = 'failed';
+    verification.sessionCrossCheck = 'failed';
+  } else if (!verifySessionResult.ok) {
+    verification.ttl = 'failed';
+    verification.replay = 'failed';
+    verification.sessionCrossCheck = 'failed';
+  } else {
+    verification.ttl = 'passed';
+    verification.replay = 'passed';
+    const serverSessionId =
+      verifySessionResult.body?.session_id ||
+      verifySessionResult.body?.sessionId ||
+      verifySessionResult.body?.session?.session_id ||
+      verifySessionResult.body?.session?.sessionId ||
+      null;
+    verification.sessionCrossCheck = !sessionId || !serverSessionId || sessionId === serverSessionId
+      ? 'passed'
+      : 'failed';
+  }
+
+  const verificationSyncResult = await postToClientServer('/sneek/verification-sync', verificationSyncPayload);
+  const callbackResult = await postToClientServer('/sneek/callback', callbackPayload, {
+    'x-sneek-signature': callbackSignature,
+  });
+
+  verification.callbackSignature = callbackResult.skipped || callbackResult.ok ? 'passed' : 'failed';
+
+  const crossChecks = [
+    verification.sessionCrossCheck,
+    verification.payloadDigestMatch,
+    verification.blobDigestMatch,
+  ];
+  verification.crossVerifySummary = crossChecks.every((status) => status === 'passed') ? 'passed' : 'failed';
+
   const clientBridge = {
-    verifySession: await postToClientServer('/verify-session', {
-      session_id: sessionId,
-      client_id: decryptedPayload.client_id,
-    }),
-    verificationSync: await postToClientServer('/sneek/verification-sync', verificationSyncPayload),
-    callback: await postToClientServer('/sneek/callback', callbackPayload, {
-      'x-sneek-signature': callbackSignature,
-    }),
+    verifySession: verifySessionResult,
+    verificationSync: verificationSyncResult,
+    callback: callbackResult,
   };
+
+  if (verification.ttl === 'failed' || verification.replay === 'failed') {
+    return {
+      status: verification.ttl === 'failed' ? 410 : 409,
+      body: {
+        ok: false,
+        error: verification.ttl === 'failed' ? 'Session has expired.' : 'Replay detected for this session.',
+        decryptedPayload,
+        verification,
+        clientBridge,
+      },
+    };
+  }
+
+  if (verification.callbackSignature === 'failed') {
+    return {
+      status: 401,
+      body: {
+        ok: false,
+        error: 'Callback signature verification failed at client server.',
+        decryptedPayload,
+        verification,
+        clientBridge,
+      },
+    };
+  }
+
+  if (verification.payloadDigestMatch === 'failed' || verification.blobDigestMatch === 'failed') {
+    return {
+      status: 401,
+      body: {
+        ok: false,
+        error: 'Cross-verification digest mismatch.',
+        decryptedPayload,
+        verification,
+        clientBridge,
+      },
+    };
+  }
+
+  if (sessionId) {
+    locallyConsumedSessions.add(sessionId);
+  }
 
   return {
     status: 200,

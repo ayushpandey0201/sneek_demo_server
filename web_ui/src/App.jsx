@@ -24,6 +24,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           encryptedBlob: blob,
+          mobileToken: 'demo-mobile-token',
           username: username.trim() || undefined
         }),
       });

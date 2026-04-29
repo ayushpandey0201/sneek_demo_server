@@ -5,7 +5,14 @@ function verifyHMAC(payload, k1) {
     return { ok: false, reason: 'missing_hmac_inputs' };
   }
 
-  const expectedHmac = computeClientHmac(payload.client_id, k1);
+  const payloadCore = {
+    client_id: payload.client_id,
+    session_id: payload.session_id || payload.sessionId,
+    kid: payload.kid,
+    expires_at: payload.expires_at || payload.expiresAt,
+  };
+
+  const expectedHmac = computeClientHmac(payloadCore, k1);
   if (expectedHmac !== payload.hmac) {
     return {
       ok: false,
