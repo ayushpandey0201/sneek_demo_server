@@ -247,21 +247,8 @@ async function processSneekScan(body) {
     };
   }
 
-  const verificationSyncPayload = {
-    session_id: sessionId,
-    verification,
-    client_id: decryptedPayload.client_id,
-    userProfile,
-    sharedInfo,
-  };
-  const callbackPayload = {
-    session_id: sessionId,
-    client_id: decryptedPayload.client_id,
-    userProfile,
-    sharedInfo,
-    verification,
-  };
-  const callbackSignature = signCallbackPayload(callbackPayload, client.callbackSecret);
+  // Note: callbackPayload and signature are built AFTER all verification
+  //       mutations below, so that the signature covers the final gate states.
 
   const verifySessionResult = await postToClientServer('/verify-session', {
     session_id: sessionId,
@@ -298,7 +285,24 @@ async function processSneekScan(body) {
       : 'failed';
   }
 
+  const verificationSyncPayload = {
+    session_id: sessionId,
+    verification,
+    client_id: decryptedPayload.client_id,
+    userProfile,
+    sharedInfo,
+  };
   const verificationSyncResult = await postToClientServer('/sneek/verification-sync', verificationSyncPayload);
+
+  // Build and sign callback payload AFTER all verification gates are resolved
+  const callbackPayload = {
+    session_id: sessionId,
+    client_id: decryptedPayload.client_id,
+    userProfile,
+    sharedInfo,
+    verification: { ...verification },
+  };
+  const callbackSignature = signCallbackPayload(callbackPayload, client.callbackSecret);
   const callbackResult = await postToClientServer('/sneek/callback', callbackPayload, {
     'x-sneek-signature': callbackSignature,
   });
