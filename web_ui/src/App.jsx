@@ -13,7 +13,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
+// Calls to the Client Server (QR generation, session polling) → md.sneek.in
+const CLIENT_API_URL = (import.meta.env.VITE_CLIENT_API_URL || '/api').replace(/\/+$/, '');
+// Calls to the Sneek Server (scan + verification) → api.sneek.in
+const SNEEK_API_URL = (import.meta.env.VITE_SNEEK_API_URL || '/api').replace(/\/+$/, '');
 
 // ── Gate display names ──────────────────────────────────────────
 const CORE_GATES = [
@@ -77,7 +80,7 @@ export default function App() {
   const handleGenerateQr = async () => {
     resetState();
     try {
-      const res = await fetch(`${API_BASE_URL}/generate-qr`, {
+      const res = await fetch(`${CLIENT_API_URL}/generate-qr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -114,7 +117,7 @@ export default function App() {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/session-status?session_id=${sid}`);
+        const res = await fetch(`${CLIENT_API_URL}/session-status?session_id=${sid}`);
         const data = await res.json();
         setSessionStatus(data);
 
@@ -148,7 +151,7 @@ export default function App() {
     addLog('scan_request', 'Simulating mobile scan — sending blob to Sneek server.', 'pending');
 
     try {
-      const res = await fetch(`${API_BASE_URL}/sneek/scan`, {
+      const res = await fetch(`${SNEEK_API_URL}/sneek/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

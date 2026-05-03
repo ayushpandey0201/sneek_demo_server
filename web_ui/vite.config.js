@@ -8,7 +8,7 @@ export default defineConfig({
     port: 3030,
     proxy: {
       '/api/sneek': {
-        target: 'http://localhost:4000',
+        target: 'https://api.sneek.in',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       },
