@@ -1,4 +1,15 @@
 node_modules/
 dist/
-.env
 .DS_Store
+
+# All .env variants in any subdirectory
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Vercel deployment artifacts
+.vercel/
+**/.vercel/
+.vercel
+.env*.local

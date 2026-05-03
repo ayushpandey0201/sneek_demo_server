@@ -4,15 +4,21 @@ const { verifyHMAC, verifyKID } = require('../shared/securityChecks');
 const DEMO_MOBILE_TOKEN = 'demo-mobile-token';
 const locallyConsumedSessions = new Set();
 
+const CLIENT_ID       = process.env.CLIENT_ID        || 'spotify_123';
+const CLIENT_KID      = process.env.CLIENT_KID       || 'spotify.com';
+const CLIENT_K1       = process.env.CLIENT_K1        || 'secretkey';
+const CALLBACK_SECRET = process.env.CALLBACK_SECRET  || 'spotify-callback-secret';
+const CLIENT_NAME     = process.env.CLIENT_NAME      || 'Spotify';
+
 const clients = new Map([
   [
-    'spotify_123',
+    CLIENT_ID,
     {
-      clientId: 'spotify_123',
-      displayName: 'Spotify',
-      kid: 'spotify.com',
-      k1: 'secretkey',
-      callbackSecret: 'spotify-callback-secret',
+      clientId: CLIENT_ID,
+      displayName: CLIENT_NAME,
+      kid: CLIENT_KID,
+      k1: CLIENT_K1,
+      callbackSecret: CALLBACK_SECRET,
     },
   ],
 ]);

@@ -7,8 +7,23 @@ export default defineConfig({
   server: {
     port: 3030,
     proxy: {
-      '/api': {
+      '/api/sneek': {
         target: 'http://localhost:4000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/api/generate-qr': {
+        target: 'https://md.sneek.in',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/api/session-status': {
+        target: 'https://md.sneek.in',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/api/verify-session': {
+        target: 'https://md.sneek.in',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }
