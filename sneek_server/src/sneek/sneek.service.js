@@ -1,5 +1,5 @@
 const { decryptPayload, signCallbackPayload, canonicalize, sha256Hex } = require('../shared/crypto');
-const { verifyHMAC, verifyKID } = require('../shared/securityChecks');
+const { verifyHMAC, verifyKID, verifyScanOrigin } = require('../shared/securityChecks');
 
 const DEMO_MOBILE_TOKEN = 'demo-mobile-token';
 const locallyConsumedSessions = new Set();
@@ -10,6 +10,13 @@ const CLIENT_K1       = process.env.CLIENT_K1        || 'secretkey';
 const CALLBACK_SECRET = process.env.CALLBACK_SECRET  || 'spotify-callback-secret';
 const CLIENT_NAME     = process.env.CLIENT_NAME      || 'Spotify';
 
+const CLIENT_ALLOWED_ORIGINS = (process.env.CLIENT_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const ALLOW_SCAN_WITHOUT_ORIGIN = String(process.env.ALLOW_SCAN_WITHOUT_ORIGIN || '').toLowerCase() === 'true';
+
 const clients = new Map([
   [
     CLIENT_ID,
@@ -19,6 +26,7 @@ const clients = new Map([
       kid: CLIENT_KID,
       k1: CLIENT_K1,
       callbackSecret: CALLBACK_SECRET,
+      allowedOrigins: CLIENT_ALLOWED_ORIGINS,
     },
   ],
 ]);
@@ -33,6 +41,7 @@ function createInitialVerification() {
     decrypt: 'pending',
     hmac: 'pending',
     kid: 'pending',
+    origin: 'pending',
     ttl: 'pending',
     replay: 'pending',
     callbackSignature: 'pending',
@@ -114,8 +123,24 @@ async function postToClientServer(path, payload, extraHeaders = {}) {
   }
 }
 
-async function processSneekScan(body) {
-  const { encryptedBlob, username, mobileToken, userId, name, email } = body || {};
+function buildVerificationDisplay(body) {
+  const verifierName =
+    body?.verifierName != null && String(body.verifierName).trim()
+      ? String(body.verifierName).trim()
+      : null;
+  const message =
+    body?.verificationMessage != null && String(body.verificationMessage).trim()
+      ? String(body.verificationMessage).trim()
+      : null;
+  if (!verifierName && !message) return null;
+  return { verifierName, message };
+}
+
+async function processSneekScan(body, requestMeta = {}) {
+  const { origin: requestOrigin } = requestMeta;
+  const { encryptedBlob, username, mobileToken, userId, name, email, verifierName, verificationMessage } =
+    body || {};
+  const verificationDisplay = buildVerificationDisplay({ verifierName, verificationMessage });
   logStep('SNEEK', 'Scan/Verify request received');
   
   if (!encryptedBlob) {
@@ -173,6 +198,32 @@ async function processSneekScan(body) {
   }
   verification.kid = 'passed';
   logStep('SNEEK', 'KID verified.');
+
+  const originCheck = verifyScanOrigin(requestOrigin, client.allowedOrigins, {
+    allowMissingOrigin: ALLOW_SCAN_WITHOUT_ORIGIN,
+  });
+  if (originCheck.skipped) {
+    verification.origin = 'skipped';
+  } else if (!originCheck.ok) {
+    verification.origin = 'failed';
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error:
+          originCheck.reason === 'missing_origin'
+            ? 'Origin header required for this client.'
+            : 'Origin is not allowed for this client (CORS / allowlist).',
+        receivedOrigin: requestOrigin || null,
+        allowedOrigins: client.allowedOrigins,
+        decryptedPayload,
+        verification,
+      },
+    };
+  } else {
+    verification.origin = 'passed';
+    logStep('SNEEK', 'Request Origin allowlisted for client.');
+  }
 
   const expectedPayloadDigest = deriveExpectedPayloadDigest(decryptedPayload);
   const receivedPayloadDigest = decryptedPayload.payloadDigest || decryptedPayload.payload_digest || null;
@@ -297,6 +348,7 @@ async function processSneekScan(body) {
     client_id: decryptedPayload.client_id,
     userProfile,
     sharedInfo,
+    verificationDisplay,
   };
   const verificationSyncResult = await postToClientServer('/sneek/verification-sync', verificationSyncPayload);
 
@@ -306,6 +358,7 @@ async function processSneekScan(body) {
     client_id: decryptedPayload.client_id,
     userProfile,
     sharedInfo,
+    verificationDisplay,
     verification: { ...verification },
   };
   const callbackSignature = signCallbackPayload(callbackPayload, client.callbackSecret);
@@ -380,6 +433,12 @@ async function processSneekScan(body) {
       verification,
       userProfile,
       sharedInfo,
+      verificationDisplay,
+      authenticatedClient: {
+        client_id: client.clientId,
+        displayName: client.displayName,
+        kid: client.kid,
+      },
       clientBridge,
     },
   };

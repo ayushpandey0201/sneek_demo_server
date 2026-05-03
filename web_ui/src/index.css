@@ -107,6 +107,10 @@ body {
   font-size: 1.1rem;
 }
 
+.text-muted {
+  color: var(--text-muted);
+}
+
 .grid-container {
   display: grid;
   grid-template-columns: 1fr;
@@ -631,6 +635,7 @@ body {
 
 .gate-card.passed { border-color: rgba(16,185,129,0.2); }
 .gate-card.failed { border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); }
+.gate-card.skipped { border-color: rgba(148,163,184,0.25); background: rgba(148,163,184,0.06); }
 
 .gate-card-label {
   font-size: 0.78rem;
@@ -650,6 +655,99 @@ body {
 .gate-card-status.passed { color: var(--success); }
 .gate-card-status.failed { color: var(--error); }
 .gate-card-status.pending { color: #f59e0b; }
+.gate-card-status.skipped { color: var(--text-muted); }
+
+.step-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.step-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
+.step-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.status-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status-pill.pending {
+  background: rgba(16,185,129,0.15);
+  color: var(--success);
+}
+
+.status-pill.scanning {
+  background: rgba(59,130,246,0.15);
+  color: var(--primary);
+}
+
+.session-meta {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.session-meta strong {
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.verification-note-card {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(59,130,246,0.08);
+  border: 1px solid rgba(59,130,246,0.2);
+}
+
+.verification-note-card h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.verification-note-card .verifier-name {
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 0.35rem;
+}
+
+.verification-note-card .verifier-msg {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.client-auth-badge {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.client-auth-badge strong {
+  color: var(--success);
+}
 
 /* ── Event log ───────────────────────────────────────────────── */
 .event-log {

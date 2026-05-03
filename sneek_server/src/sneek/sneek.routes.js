@@ -6,7 +6,7 @@ function createSneekRouter() {
 
   router.post('/sneek/scan', async (req, res) => {
     try {
-      const result = await processSneekScan(req.body);
+      const result = await processSneekScan(req.body, { origin: req.get('origin') });
       res.status(result.status).json(result.body);
     } catch (error) {
       res.status(500).json({
@@ -19,7 +19,7 @@ function createSneekRouter() {
 
   router.post('/api/sneek/scan', async (req, res) => {
     try {
-      const result = await processSneekScan(req.body);
+      const result = await processSneekScan(req.body, { origin: req.get('origin') });
       res.status(result.status).json(result.body);
     } catch (error) {
       res.status(500).json({

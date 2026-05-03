@@ -1,32 +1,21 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 3030,
-    proxy: {
-      '/api/sneek': {
-        target: 'https://api.sneek.in',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const sneekTarget = env.VITE_SNEEK_PROXY_TARGET || 'http://localhost:4000'
+
+  return {
+    plugins: [react()],
+    server: {
+      port: 3030,
+      proxy: {
+        '/api/sneek': {
+          target: sneekTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, ''),
+        },
       },
-      '/api/generate-qr': {
-        target: 'https://md.sneek.in',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      },
-      '/api/session-status': {
-        target: 'https://md.sneek.in',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      },
-      '/api/verify-session': {
-        target: 'https://md.sneek.in',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
-    }
+    },
   }
 })
